@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recipe List</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Recipe List</h1>
+        <div class="recipes">
+            <!-- Dynamic content will be inserted here -->
+        </div>
+        <div class="weekly-list">
+            <h2>Weekly List</h2>
+            <ul id="weekly-list">
+                <!-- Added recipes will appear here -->
+            </ul>
+            <button onclick="goToNextPage()">Next</button>
+        </div>
+    </div>
+
+    <div id="recipe-popup" class="popup">
+        <div class="popup-content">
+            <span class="close" onclick="closePopup()">&times;</span>
+            <div id="popup-content"></div>
+        </div>
+    </div>
+
+    <script src="scripts.js"></script>
+</body>
+</html>
