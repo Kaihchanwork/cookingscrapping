@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import json
+import time
 
 def get_html(url):
     response = requests.get(url)
@@ -27,7 +28,7 @@ def get_recipe_links(category_url):
     if not html:
         return []
     soup = BeautifulSoup(html, 'html.parser')
-    divs = soup.find_all('div', {'data-test-id': lambda x: x and x.startswith('recipe-card-')})
+    divs = soup.find_all('div', {'data-test-id': lambda x: x and x.startswith('recipe-card-'), 'class': 'web-1nlafhw'})
     recipe_urls = []
     for div in divs:
         link = div.find('a', class_='sc-9394dad-0 cQbWbr')
@@ -63,15 +64,10 @@ def scrape_recipe(recipe_url, tag):
         for ingredient in ingredients:
             name_tag = ingredient.find('p', class_='sc-9394dad-0 eERBYk')
             unit_tag = ingredient.find('p', class_='sc-9394dad-0 cJeggo')
-            #image_div = ingredient.find('div', class_='gCQsju')
-            #image_url = ''
-            #if image_div:
-            #    img_tag = image_div.find('img')
-            #    image_url = img_tag['src'] if img_tag else ''
             img_tag = ingredient.find('img')
             image_url = img_tag['src'] if img_tag else ''
-            if not image_url:
-                    print(f"Log: Image src found in <div> with class 'gCQsju' for ingredient: {name_tag.text.strip() if name_tag else ''} is {img_tag['src'] if img_tag else 'No image tag found'}")
+            #if not image_url:
+            #    print(f"Log: Image src found in <div> with class 'gCQsju' for ingredient: {name_tag.text.strip() if name_tag else ''} is {img_tag['src'] if img_tag else 'No image tag found'}")
             unit_text = unit_tag.text.strip() if unit_tag else ''
             unit_text = unit_text.replace('\u00bd', '0.5')  # Replace "½" with "0.5"
             unit_text = unit_text.replace('\u00bc', '0.25')  # Replace "¼" with "0.25"
@@ -104,20 +100,27 @@ def main():
 
     scraped_data = []
     count = 0
-    limit = 10  # Limit the number of recipes to scrape
+    limit = 10000  # Limit the number of recipes to scrape
+    seen_titles = set()  # Set to track seen titles
 
     for category in category_links:
         tag = category['tag']
         print(f"Processing category: {tag}")
+        
+        # Adding a delay to allow the page to load
+        time.sleep(0.5)
+        
         recipe_links = get_recipe_links(category['url'])
+        print(f"Found {len(recipe_links)} recipes in category: {tag}")
         
         for link in recipe_links:
             if count >= limit:
                 break
             full_link = base_url + link if link.startswith('/') else link
             recipe = scrape_recipe(full_link, tag)
-            if recipe:
+            if recipe and recipe['title'] not in seen_titles:
                 scraped_data.append(recipe)
+                seen_titles.add(recipe['title'])
                 count += 1
                 print(f"Scraped recipe: {recipe['title']} from {tag}")
 
