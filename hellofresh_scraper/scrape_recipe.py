@@ -89,7 +89,7 @@ def main():
     directory = 'recipesjsonfolder'
     scraped_data = []
     count = 0
-    limit = 10  # Limit the number of recipes to scrape
+    limit = 10000  # Limit the number of recipes to scrape
     seen_titles = set()  # Set to track seen titles
 
     for filename in os.listdir(directory):
