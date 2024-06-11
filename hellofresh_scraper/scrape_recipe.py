@@ -1,40 +1,38 @@
+import os
+import json
 import requests
 from bs4 import BeautifulSoup
-import json
 import time
 
 def get_html(url):
-    response = requests.get(url)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
         return response.text
-    else:
-        print(f"Failed to retrieve page: {url}")
+    except requests.RequestException as e:
+        print(f"Failed to retrieve page: {url} with error: {e}")
         return None
 
-def get_category_links(base_url):
-    html = get_html(base_url + '/recipes/most-popular-recipes')
-    soup = BeautifulSoup(html, 'html.parser')
-    category_div = soup.find('div', {'data-test-id': 'recipes|world-cuisines-tags'})
-    if not category_div:
-        print("Category div not found")
-        return []
-    
-    links = category_div.find_all('a', class_='sc-9394dad-0 cQbWbr')
-    category_urls = [{'tag': link.text.strip(), 'url': base_url + link['href'] + '?page=1000'} for link in links]
-    return category_urls
+def get_recipe_links_from_file(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    return data if isinstance(data, list) else []
 
-def get_recipe_links(category_url):
-    html = get_html(category_url)
-    if not html:
-        return []
-    soup = BeautifulSoup(html, 'html.parser')
-    divs = soup.find_all('div', {'data-test-id': lambda x: x and x.startswith('recipe-card-'), 'class': 'web-1nlafhw'})
-    recipe_urls = []
-    for div in divs:
-        link = div.find('a', class_='sc-9394dad-0 cQbWbr')
-        if link:
-            recipe_urls.append(link['href'])
-    return recipe_urls
+def replace_fractions(text):
+    fractions = {
+        '\u00bd': '0.5',   # ½
+        '\u00bc': '0.25',  # ¼
+        '\u2153': '0.333', # ⅓
+        '\u2154': '0.667', # ⅔
+        '\u00be': '0.75',  # ¾
+        '\u215b': '0.125', # ⅛
+        '\u215c': '0.375', # ⅜
+        '\u215d': '0.625', # ⅝
+        '\u215e': '0.875'  # ⅞
+    }
+    for frac, dec in fractions.items():
+        text = text.replace(frac, dec)
+    return text
 
 def scrape_recipe(recipe_url, tag):
     recipe_data = {'tag': tag, 'url': recipe_url}
@@ -50,11 +48,8 @@ def scrape_recipe(recipe_url, tag):
     
     # Extract hero image
     hero_image_div = soup.find('div', {'data-test-id': 'recipe-hero-image'})
-    if hero_image_div:
-        hero_image = hero_image_div.find('img')
-        recipe_data['hero_image_url'] = hero_image['src'] if hero_image else ''
-    else:
-        recipe_data['hero_image_url'] = ''
+    hero_image = hero_image_div.find('img') if hero_image_div else None
+    recipe_data['hero_image_url'] = hero_image['src'] if hero_image else ''
     
     # Extract ingredients
     ingredients_section = soup.find('div', {'class': 'ceEdmx'})
@@ -66,11 +61,7 @@ def scrape_recipe(recipe_url, tag):
             unit_tag = ingredient.find('p', class_='sc-9394dad-0 cJeggo')
             img_tag = ingredient.find('img')
             image_url = img_tag['src'] if img_tag else ''
-            #if not image_url:
-            #    print(f"Log: Image src found in <div> with class 'gCQsju' for ingredient: {name_tag.text.strip() if name_tag else ''} is {img_tag['src'] if img_tag else 'No image tag found'}")
-            unit_text = unit_tag.text.strip() if unit_tag else ''
-            unit_text = unit_text.replace('\u00bd', '0.5')  # Replace "½" with "0.5"
-            unit_text = unit_text.replace('\u00bc', '0.25')  # Replace "¼" with "0.25"
+            unit_text = replace_fractions(unit_tag.text.strip()) if unit_tag else ''
             recipe_data['ingredients'].append({
                 'name': name_tag.text.strip() if name_tag else '',
                 'unit': unit_text,
@@ -85,7 +76,7 @@ def scrape_recipe(recipe_url, tag):
         for step in steps:
             step_text_tag = step.find('span', class_='sc-9394dad-0 FSngy')
             img_tag = step.find('img')
-            step_text = step_text_tag.text.strip() if step_text_tag else ''
+            step_text = replace_fractions(step_text_tag.text.strip()) if step_text_tag else ''
             image_url = img_tag['src'] if img_tag else ''
             recipe_data['instructions'].append({
                 'text': step_text,
@@ -95,34 +86,29 @@ def scrape_recipe(recipe_url, tag):
     return recipe_data
 
 def main():
-    base_url = 'https://www.hellofresh.com'
-    category_links = get_category_links(base_url)
-
+    directory = 'recipesjsonfolder'
     scraped_data = []
     count = 0
-    limit = 10000  # Limit the number of recipes to scrape
+    limit = 10  # Limit the number of recipes to scrape
     seen_titles = set()  # Set to track seen titles
 
-    for category in category_links:
-        tag = category['tag']
-        print(f"Processing category: {tag}")
-        
-        # Adding a delay to allow the page to load
-        time.sleep(0.5)
-        
-        recipe_links = get_recipe_links(category['url'])
-        print(f"Found {len(recipe_links)} recipes in category: {tag}")
-        
-        for link in recipe_links:
-            if count >= limit:
-                break
-            full_link = base_url + link if link.startswith('/') else link
-            recipe = scrape_recipe(full_link, tag)
-            if recipe and recipe['title'] not in seen_titles:
-                scraped_data.append(recipe)
-                seen_titles.add(recipe['title'])
-                count += 1
-                print(f"Scraped recipe: {recipe['title']} from {tag}")
+    for filename in os.listdir(directory):
+        if filename.endswith('.json'):
+            tag = filename.replace('.json', '')
+            file_path = os.path.join(directory, filename)
+            recipe_links = get_recipe_links_from_file(file_path)
+            
+            print(f"Processing {len(recipe_links)} recipes in category: {tag}")
+            
+            for link in recipe_links:
+                if count >= limit:
+                    break
+                recipe = scrape_recipe(link, tag)
+                if recipe and recipe['title'] not in seen_titles:
+                    scraped_data.append(recipe)
+                    seen_titles.add(recipe['title'])
+                    count += 1
+                    print(f"Scraped recipe: {recipe['title']} from {tag}")
 
     # Output the scraped data to a JSON file
     with open('scraped_recipes.json', 'w') as f:
