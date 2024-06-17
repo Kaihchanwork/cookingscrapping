@@ -1,11 +1,11 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import numpy as np
 
 # Function to convert time string to total seconds (e.g., '1.11.47' -> 1*60 + 11.47 seconds)
@@ -35,6 +35,9 @@ print(data['Finish Time'].unique())
 
 # Convert 'Finish Time' to seconds
 data['Finish Time'] = data['Finish Time'].apply(time_to_seconds)
+
+# Convert 'Distance' to numeric
+data['Distance'] = pd.to_numeric(data['Distance'], errors='coerce')
 
 # Debug: Print the first few rows of the dataset after conversion
 print("Data after converting 'Finish Time' to seconds:")
@@ -68,49 +71,78 @@ print(f"Number of rows after dropping NaNs in 'Finish Time': {len(data)}")
 # Convert categorical features to numerical values
 categorical_features = ['Horse Number', 'Horse Name', 'Racecourse', 'Track', 'Course', 'Distance', 'Going', 'Race Class', 'Trainer', 'Jockey']
 
-# Column transformer for preprocessing
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('num', Pipeline(steps=[
-            ('imputer', SimpleImputer(strategy='mean')),
-            ('scaler', StandardScaler())
-        ]), all_numerical_features),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
-    ])
+# Function to train model based on specific distance
+def train_model_for_distance(data, distance):
+    # Ensure distance is numeric
+    distance = float(distance)
 
-# Define the model pipeline
-model = Pipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('regressor', RandomForestRegressor(n_estimators=100, random_state=42))
-])
+    # Filter the data for the given distance
+    filtered_data = data[data['Distance'] == distance]
 
-# Define features and target variable
-X = data[categorical_features + all_numerical_features]
-y = data['Finish Time']
+    if filtered_data.empty:
+        raise ValueError(f"No data available for distance {distance}")
 
-# Debug: Print the number of samples and features
-print(f"Number of samples: {X.shape[0]}, Number of features: {X.shape[1]}")
+    # Define features and target variable
+    X = filtered_data[categorical_features + all_numerical_features]
+    y = filtered_data['Finish Time']
 
-# Split the data into training and testing sets
-if len(data) > 0:
+    # Split the data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Train the model
-    model.fit(X_train, y_train)
+    # Column transformer for preprocessing
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='mean')),
+                ('scaler', StandardScaler())
+            ]), all_numerical_features),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
+        ])
+
+    # Define the model pipeline
+    model = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('regressor', RandomForestRegressor(random_state=42))
+    ])
+
+    # Hyperparameter tuning
+    param_grid = {
+        'regressor__n_estimators': [100, 200],
+        'regressor__max_depth': [None, 10, 20],
+        'regressor__min_samples_split': [2, 5],
+        'regressor__min_samples_leaf': [1, 2]
+    }
+    
+    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='neg_mean_squared_error', n_jobs=-1)
+    grid_search.fit(X_train, y_train)
+    
+    # Best model
+    best_model = grid_search.best_estimator_
 
     # Make predictions
-    y_pred = model.predict(X_test)
+    y_pred = best_model.predict(X_test)
 
     # Evaluate the model
     mae = mean_absolute_error(y_test, y_pred)
     mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+    
+    # Define an acceptable error threshold (e.g., 5 seconds)
+    error_threshold = 1.0
+    accuracy = np.mean(np.abs(y_test - y_pred) <= error_threshold)
+    
     print(f'Mean Absolute Error: {mae}')
     print(f'Mean Squared Error: {mse}')
-else:
-    print("No valid data available for training.")
+    print(f'R^2 Score: {r2}')
+    print(f'Accuracy within {error_threshold} seconds: {accuracy * 100:.2f}%')
+
+    return best_model
 
 # Function to predict finish time for new data
 def predict_finish_time(horse_number, horse_name, racecourse, track, course, distance, going, race_class, draw, rating, trainer, jockey, win_odds, actual_weight, declared_horse_weight, **kwargs):
+    # Train the model for the specific distance
+    best_model = train_model_for_distance(data, distance)
+    
     new_data = pd.DataFrame({
         'Horse Number': [horse_number],
         'Horse Name': [horse_name],
@@ -140,10 +172,10 @@ def predict_finish_time(horse_number, horse_name, racecourse, track, course, dis
         new_data[col] = new_data[col].astype(int)
     
     # Apply the same preprocessing steps to the new data
-    new_data_preprocessed = model.named_steps['preprocessor'].transform(new_data)
+    new_data_preprocessed = best_model.named_steps['preprocessor'].transform(new_data)
     
     # Make prediction
-    finish_time_pred = model.named_steps['regressor'].predict(new_data_preprocessed)
+    finish_time_pred = best_model.named_steps['regressor'].predict(new_data_preprocessed)
     
     return finish_time_pred[0]
 
@@ -153,7 +185,7 @@ horse_name = 'GLORY ELITE'
 racecourse = 'ST'
 track = 'Turf'
 course = 'C+3'
-distance = '1200'
+distance = 1200
 going = 'S'
 race_class = '4'
 draw = 2
