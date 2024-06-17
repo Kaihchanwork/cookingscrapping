@@ -88,7 +88,7 @@ def main():
 
     all_race_records = []
     horse_count = 0
-    max_horses = 10
+    max_horses = 1000000
     fetched_urls = set()
 
     for index_page in index_pages:

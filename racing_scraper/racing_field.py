@@ -58,7 +58,13 @@ def extract_field_info(table):
     print(f"Extracted race_index: {field_info['race_index']}")
 
     rows = table.find('tbody').find_all('tr')
-
+    
+    # Extract class summary
+    try:
+        field_info['class_summary'] = rows[1].find_all('td')[0].text.strip()
+    except IndexError:
+        field_info['class_summary'] = ""
+    print(f"Extracted class_summary: {field_info['class_summary']}")
     # Extract class and distance information from class summary
     try:
         class_distance_parts = field_info['class_summary'].split('-')
@@ -146,14 +152,14 @@ def main():
     for date in race_dates:
         race_urls = get_race_urls(date)
         for i, url in enumerate(race_urls):
-            if url_count >= 10:  # Limit to the first 10 URLs
+            if url_count >= 10000:  # Limit to the first 10 URLs
                 break
             race_no = i + 1  # Race number starts from 1
             print(f"Scraping {url}...")
             field_data = scrape_field_info(url, date, race_no)
             all_field_data.extend(field_data)
             url_count += 1
-        if url_count >= 10:
+        if url_count >= 10000:
             break
 
     # Save the data to a CSV file
